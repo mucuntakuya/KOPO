@@ -4,70 +4,58 @@ import re
 ROOT = Path(".")
 OUTPUT = ROOT / "all.m3u"
 
-EXCLUDE_DIRS = {".git"}
+print("=== 开始合并 ===")
 
-def is_excluded(path: Path) -> bool:
-    if path.resolve() == OUTPUT.resolve():
-        return True
-    for part in path.parts:
-        if part in EXCLUDE_DIRS:
-            return True
-    return False
+# 找出所有 m3u 文件
+files = []
+for p in sorted(ROOT.rglob("*")):
+    if not p.is_file():
+        continue
+    if p.suffix.lower() not in (".m3u", ".m3u8"):
+        continue
+    if p.name == "all.m3u":
+        continue
+    if ".git" in p.parts:
+        continue
+    files.append(p)
 
-def escape_group(s: str) -> str:
-    # 去掉引号，避免破坏 group-title 的格式
-    return s.replace('"', "'").strip()
+print(f"找到 {len(files)} 个文件：")
+for f in files:
+    print("  ", f, "-> 分组:", f.stem)
 
-def set_group_title(line: str, group: str) -> str:
-    """
-    在 #EXTINF 行里插入或替换 group-title="..."
-    """
-    group = escape_group(group)
-
-    # 如果已经有 group-title，替换它
-    if re.search(r'group-title\s*=\s*"[^"]*"', line):
-        return re.sub(
-            r'group-title\s*=\s*"[^"]*"',
-            f'group-title="{group}"',
-            line
-        )
-
-    # 否则，在第一个不在引号内的逗号前插入 group-title
+def add_group(line, group):
+    # 去掉已有的 group-title
+    line = re.sub(r'\s*group-title="[^"]*"', '', line)
+    # 找到第一个不在引号内的逗号
     in_quote = False
+    pos = -1
     for i, ch in enumerate(line):
         if ch == '"':
             in_quote = not in_quote
         elif ch == ',' and not in_quote:
-            return line[:i] + f' group-title="{group}"' + line[i:]
-    # 没有逗号，直接追加
-    return line + f' group-title="{group}"'
-
-files = sorted(
-    p for p in ROOT.rglob("*")
-    if p.is_file()
-    and p.suffix.lower() in (".m3u", ".m3u8")
-    and not is_excluded(p)
-)
+            pos = i
+            break
+    if pos == -1:
+        return line + ' group-title="' + group + '"'
+    return line[:pos] + ' group-title="' + group + '"' + line[pos:]
 
 with OUTPUT.open("w", encoding="utf-8", newline="\n") as out:
     out.write("#EXTM3U\n")
     for file in files:
-        group = file.stem  # 用文件名（不含扩展名）作为分组名
+        group = file.stem
+        print(f"处理 {file}，分组 = {group}")
         with file.open("r", encoding="utf-8-sig", errors="ignore") as f:
-            for line in f:
-                line = line.rstrip("\r\n")
-                if line.startswith("#EXTM3U"):
-                    continue
+            for raw in f:
+                line = raw.rstrip("\r\n")
                 if not line.strip():
                     continue
-
+                if line.startswith("#EXTM3U"):
+                    continue
                 if line.startswith("#EXTINF"):
-                    # 给 #EXTINF 加上 group-title
-                    line = set_group_title(line, group)
+                    line = add_group(line, group)
                     out.write(line + "\n")
-                    # 再加一个 #EXTGRP，兼容更多播放器
-                    out.write(f"#EXTGRP:{group}\n")
+                    out.write("#EXTGRP:" + group + "\n")
                 else:
                     out.write(line + "\n")
 
-print(f"已合并 {len(files)} 个文件到 {OUTPUT}")
+print(f"完成，输出到 {OUTPUT}")
