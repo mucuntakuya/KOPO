@@ -1,76 +1,9 @@
-from pathlib import Path
-import re
-
-ROOT = Path(".")
-OUTPUT = ROOT / "all.m3u"
-
-EXCLUDE_DIRS = {".git"}
-
-def is_excluded(path: Path) -> bool:
-    if path.resolve() == OUTPUT.resolve():
-        return True
-    for part in path.parts:
-        if part in EXCLUDE_DIRS:
-            return True
-    return False
-
-def clean_group(name: str) -> str:
-    # 去掉引号，避免破坏 group-title="..."
-    return name.replace('"', "'").strip()
-
-def add_group_title(line: str, group: str) -> str:
-    group = clean_group(group)
-
-    # 先去掉已有的 group-title="..."
-    line = re.sub(r'\s*group-title="[^"]*"', '', line)
-
-    # 找到第一个不在双引号内的逗号位置
-    in_quote = False
-    comma_idx = -1
-    for i, ch in enumerate(line):
-        if ch == '"':
-            in_quote = not in_quote
-        elif ch == ',' and not in_quote:
-            comma_idx = i
-            break
-
-    if comma_idx == -1:
-        # 没有逗号，直接追加
-        return line + f' group-title="{group}"'
-
-    return line[:comma_idx] + f' group-title="{group}"' + line[comma_idx:]
-
-# 收集所有 m3u/m3u8 文件
-files = sorted(
-    p for p in ROOT.rglob("*")
-    if p.is_file()
-    and p.suffix.lower() in (".m3u", ".m3u8")
-    and not is_excluded(p)
-)
-
-with OUTPUT.open("w", encoding="utf-8", newline="\n") as out:
-    out.write("#EXTM3U\n")
-
-    for file in files:
-        group = file.stem
-
-        with file.open("r", encoding="utf-8-sig", errors="ignore") as f:
-            for raw in f:
-                line = raw.rstrip("\r\n")
-
-                # 跳过文件头的 #EXTM3U
-                if line.startswith("#EXTM3U"):
-                    continue
-
-                # 跳过空行
-                if not line.strip():
-                    continue
-
-                if line.startswith("#EXTINF"):
-                    line = add_group_title(line, group)
-                    out.write(line + "\n")
-                    out.write(f"#EXTGRP:{group}\n")
-                else:
-                    out.write(line + "\n")
-
-print(f"已合并 {len(files)} 个文件到 {OUTPUT}")
+on:
+  push:
+    paths:
+      - '**/*.m3u'
+      - '**/*.m3u8'
+      - '!all.m3u'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
