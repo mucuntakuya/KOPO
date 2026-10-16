@@ -8,7 +8,7 @@ on:
       - '!all.m3u'
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 16 * * *'
 
 permissions:
   contents: write
